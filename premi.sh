@@ -1,4 +1,15 @@
 #!/bin/bash
+
+# Matikan seluruh pop-up interaktif & daemons restart Ubuntu
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+export NEEDRESTART_SUSPEND=1
+
+# Tanam konfigurasi permanen ke sistem agar apt-get tidak memicu pop-up dialog
+mkdir -p /etc/needrestart/conf.d
+echo '$nrconf{restart} = "a";' > /etc/needrestart/conf.d/autorestart.conf 2>/dev/null || true
+echo '$nrconf{kernelhints} = 0;' >> /etc/needrestart/conf.d/autorestart.conf 2>/dev/null || true
+
 # ========================================================
 # Quick Setup VPN Server (Full Modernized Release)
 # Support: Ubuntu 20.04 / 22.04 / 24.04 & Debian 10 / 11 / 12
