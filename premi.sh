@@ -140,7 +140,6 @@ function pasang_ssl() {
 }
 
 # 5. Core Xray Terbaru & Konfigurasi Multiplexing
-# 5. Core Xray Terbaru & Konfigurasi Multiplexing
 function install_xray() {
     print_install "Memasang Core Xray & Konfigurasi Multiplexer"
     
@@ -361,6 +360,9 @@ function install_menu(){
     sed -i 's/\[\[ \$ssh_ws == "running" \]\]/\[\[ \$ssh_ws == "active" \]\]/g' /usr/local/sbin/menu 2>/dev/null
     sed -i 's/systemctl status ws | grep Active.*/systemctl is-active ws)/g' /usr/bin/menu 2>/dev/null
     sed -i 's/\[\[ \$ssh_ws == "running" \]\]/\[\[ \$ssh_ws == "active" \]\]/g' /usr/bin/menu 2>/dev/null
+    # Patch otomatis agar ISP & City tidak kosong
+    sed -i 's|curl -s ipinfo.io/org.*|curl -s http://ip-api.com/line/?fields=org|g' /usr/local/sbin/menu
+    sed -i 's|curl -s ipinfo.io/city.*|curl -s http://ip-api.com/line/?fields=city|g' /usr/local/sbin/menu
 
     cat <<EOF > /root/.profile
 if [ "\$BASH" ]; then
