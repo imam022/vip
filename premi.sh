@@ -1,8 +1,8 @@
 #!/bin/bash
-# =========================================
-# Quick Setup VPN Server (Modernized Edition)
+# ========================================================
+# Quick Setup VPN Server (Full Modernized Release)
 # Support: Ubuntu 20.04 / 22.04 / 24.04 & Debian 10 / 11 / 12
-# =========================================
+# ========================================================
 
 export DEBIAN_FRONTEND=noninteractive
 Green="\e[92;1m"
@@ -25,14 +25,14 @@ if [ "$(systemd-detect-virt)" == "openvz" ]; then
     exit 1
 fi
 
-# Cek Arsitektur
+# Cek Arsitektur Mesin
 ARCH=$(uname -m)
 if [[ "$ARCH" != "x86_64" ]]; then
     echo -e "${ERROR} Arsitektur $ARCH tidak didukung! Harus x86_64."
     exit 1
 fi
 
-# Deteksi IP Publik
+# Deteksi IP Publik Server
 MYIP=$(curl -sS ipv4.icanhazip.com || curl -sS ifconfig.me || curl -sS ipinfo.io/ip)
 if [[ -z "$MYIP" ]]; then
     echo -e "${ERROR} IP Publik tidak terdeteksi!"
@@ -53,13 +53,13 @@ function print_success() {
     sleep 1
 }
 
-# 1. Persiapan Direktori & Dependensi OS
+# 1. Persiapan Direktori & Basis Sistem
 function first_setup(){
     print_install "Menyiapkan Direktori & Dependensi Sistem"
     timedatectl set-timezone Asia/Jakarta
     ln -fs /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
 
-    mkdir -p /etc/xray /var/log/xray /var/lib/kyt /var/www/html /run/xray /usr/local/kyt
+    mkdir -p /etc/xray /var/log/xray /var/lib/kyt /var/www/html /run/xray /usr/local/kyt /usr/local/share/xray /usr/local/bin
     chown -R www-data:www-data /var/log/xray /run/xray
     touch /var/log/xray/access.log /var/log/xray/error.log
     chmod +x /var/log/xray
@@ -78,7 +78,7 @@ function first_setup(){
     print_success "Dependensi Dasar"
 }
 
-# 2. Paket Wajib & Python 3
+# 2. Pemasangan Paket Lengkap
 function base_package() {
     print_install "Memasang Paket Sistem, Python 3 & Utilitas Jaringan"
     apt install -y zip unzip tar curl wget git jq socat cron bash-completion \
@@ -91,7 +91,7 @@ function base_package() {
     print_success "Paket Pendukung Selesai Dipasang"
 }
 
-# 3. Input Domain
+# 3. Input & Konfigurasi Domain
 function pasang_domain() {
     clear
     echo -e "   .----------------------------------."
@@ -113,7 +113,7 @@ function pasang_domain() {
     print_success "Domain Terdaftar: $domain"
 }
 
-# 4. Pemasangan Sertifikat SSL Resmi (Acme.sh)
+# 4. Pemasangan SSL Let's Encrypt
 function pasang_ssl() {
     print_install "Menerbitkan Sertifikat SSL Let's Encrypt"
     domain=$(cat /etc/xray/domain)
@@ -134,20 +134,55 @@ function pasang_ssl() {
     chmod 644 /etc/xray/xray.crt
     chmod 600 /etc/xray/xray.key
     
-    # Gabungkan CRT + KEY untuk terminasi SSL HAProxy
     cat /etc/xray/xray.crt /etc/xray/xray.key > /etc/haproxy/hap.pem
     chmod 600 /etc/haproxy/hap.pem
     print_success "Sertifikat SSL"
 }
 
-# 5. Core Xray Terbaru & Konfigurasi Webserver
+# 5. Core Xray Terbaru & Konfigurasi Multiplexing
 function install_xray() {
     print_install "Memasang Core Xray & Konfigurasi Multiplexer"
     
-    # Pasang Xray Release Resmi
-    bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u www-data
+    mkdir -p /usr/local/share/xray /usr/local/bin /etc/xray
     
-    # Unduh config hasil modernisasi
+    # Ambil Core Xray Resmi Release Terbaru Langsung (Aman dari bug script install.sh lama)
+    latest_xray=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep tag_name | cut -d '"' -f 4)
+    if [[ -z "$latest_xray" ]]; then
+        latest_xray="v1.8.24"
+    fi
+    wget -q -O /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/${latest_xray}/Xray-linux-64.zip"
+    unzip -q -o /tmp/xray.zip -d /tmp/xray
+    mv /tmp/xray/xray /usr/local/bin/xray
+    chmod +x /usr/local/bin/xray
+    rm -rf /tmp/xray /tmp/xray.zip
+
+    # Unduh database geosite & geoip resmi
+    wget -q -O /usr/local/share/xray/geosite.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
+    wget -q -O /usr/local/share/xray/geoip.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
+
+    # Daftarkan Xray Service Systemd
+    cat <<EOF > /etc/systemd/system/xray.service
+[Unit]
+Description=Xray Service
+Documentation=https://github.com/xtls
+After=network.target nss-lookup.target
+
+[Service]
+User=root
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ExecStart=/usr/local/bin/xray run -config /etc/xray/config.json
+Restart=on-failure
+RestartPreventExitStatus=23
+LimitNPROC=10000
+LimitNOFILE=1000000
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Unduh file config hasil revisi
     wget -q -O /etc/xray/config.json "${REPO}config.json"
     wget -q -O /etc/haproxy/haproxy.cfg "${REPO}haproxy.cfg"
     wget -q -O /etc/nginx/conf.d/xray.conf "${REPO}xray.conf"
@@ -156,22 +191,16 @@ function install_xray() {
     sed -i "s/xxx/${domain}/g" /etc/haproxy/haproxy.cfg
     sed -i "s/xxx/${domain}/g" /etc/nginx/conf.d/xray.conf
     
-    # Download GeoIP & Geosite
-    wget -q -O /usr/local/share/xray/geosite.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
-    wget -q -O /usr/local/share/xray/geoip.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
-    
     print_success "Core Xray & Konfigurasi Multiplexing"
 }
 
-# 6. Service SSH & WebSocket Proxy (Python 3)
+# 6. Service SSH & WebSocket Proxy (Python 3 Native)
 function ins_ssh_ws(){
     print_install "Menyiapkan SSH, Dropbear & WebSocket Proxy"
     
-    # SSHD Port
     sed -i 's/#Port 22/Port 22/g' /etc/ssh/sshd_config
     sed -i 's/AcceptEnv/#AcceptEnv/g' /etc/ssh/sshd_config
     
-    # Dropbear (Port 143 & 109)
     cat <<EOF > /etc/default/dropbear
 NO_START=0
 DROPBEAR_PORT=143
@@ -182,11 +211,9 @@ EOF
     echo "Banner /etc/kyt.txt" >> /etc/ssh/sshd_config
     echo "Welcome to Premium VPN Server" > /etc/kyt.txt
 
-    # Unduh Python3 ws.py
     wget -q -O /usr/bin/ws "${REPO}ws.py"
     chmod +x /usr/bin/ws
     
-    # Daftarkan systemd untuk WebSocket
     cat <<EOF > /etc/systemd/system/ws.service
 [Unit]
 Description=WebSocket SSH Python3 Service
@@ -219,7 +246,6 @@ function setup_limits(){
     wget -q -O /usr/bin/quota "${REPO}quota"
     chmod +x /usr/bin/limit-ip /usr/bin/quota
 
-    # Daftarkan Systemd Service Quota
     cat <<EOF > /etc/systemd/system/quota.service
 [Unit]
 Description=Xray Quota Auto Check Service
@@ -236,7 +262,6 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-    # Daftarkan Systemd Service Limit IP (VMess, VLess, Trojan)
     for proto in vmip vlip trip; do
         cat <<EOF > /etc/systemd/system/${proto}.service
 [Unit]
@@ -267,7 +292,6 @@ EOF
 function system_tuning(){
     print_install "Optimasi Kernel, TCP BBR & Firewall Anti-Torrent"
     
-    # Buat Swap 1GB jika belum ada
     if [ ! -f /swapfile ]; then
         dd if=/dev/zero of=/swapfile bs=1024 count=1048576 >/dev/null 2>&1
         mkswap /swapfile >/dev/null 2>&1
@@ -276,14 +300,12 @@ function system_tuning(){
         echo '/swapfile none swap sw 0 0' >> /etc/fstab
     fi
 
-    # Aktifkan TCP BBR Native
     sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
     sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
     echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
     echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
     sysctl -p >/dev/null 2>&1
 
-    # Firewall Anti Torrent
     iptables -F FORWARD
     iptables -A FORWARD -m string --algo bm --string "BitTorrent" -j DROP
     iptables -A FORWARD -m string --algo bm --string "BitTorrent protocol" -j DROP
@@ -295,7 +317,6 @@ function system_tuning(){
     netfilter-persistent save >/dev/null 2>&1
     netfilter-persistent reload >/dev/null 2>&1
 
-    # rc.local Standar
     cat <<EOF > /etc/rc.local
 #!/bin/sh -e
 iptables -I INPUT -p udp --dport 5300 -j ACCEPT
@@ -308,18 +329,26 @@ EOF
     print_success "Optimasi Sistem"
 }
 
-# 9. Pemasangan Menu CLI
+# 9. Pemasangan Menu CLI (Handle Nested Directory)
 function install_menu(){
     print_install "Memasang Menu CLI Management"
     if wget -q --spider "${REPO}limit/menu.zip"; then
+        rm -rf /tmp/menu /tmp/menu.zip
         wget -q -O /tmp/menu.zip "${REPO}limit/menu.zip"
-        unzip -q -o /tmp/menu.zip -d /tmp/menu
-        chmod +x /tmp/menu/*
-        mv /tmp/menu/* /usr/local/sbin/
+        mkdir -p /tmp/menu
+        unzip -q -o /tmp/menu.zip -d /tmp/menu/
+        
+        # Salin file eksekutor baik yang berada di root zip maupun di dalam subfolder menu
+        if [ -d "/tmp/menu/menu" ]; then
+            cp -r /tmp/menu/menu/* /usr/local/sbin/
+        else
+            cp -r /tmp/menu/* /usr/local/sbin/
+        fi
+        
+        chmod +x /usr/local/sbin/*
         rm -rf /tmp/menu /tmp/menu.zip
     fi
 
-    # Auto Profile Login Menu
     cat <<EOF > /root/.profile
 if [ "\$BASH" ]; then
     if [ -f ~/.bashrc ]; then
