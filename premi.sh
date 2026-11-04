@@ -123,31 +123,47 @@ function pasang_domain() {
     print_success "Domain Terdaftar: $domain"
 }
 
-# 4. Pemasangan SSL Let's Encrypt
+# 4. Pemasangan SSL Domain (ZeroSSL + Fallback)
 function pasang_ssl() {
-    print_install "Menerbitkan Sertifikat SSL Let's Encrypt"
+    print_install "Menerbitkan Sertifikat SSL Domain"
     domain=$(cat /etc/xray/domain)
     
     systemctl stop nginx >/dev/null 2>&1
     systemctl stop haproxy >/dev/null 2>&1
     
-    rm -rf /root/.acme.sh
-    curl -s https://get.acme.sh | sh -s email=admin@$domain
+    mkdir -p /etc/xray /etc/haproxy
+    
+    # Pasang acme jika belum ada tanpa menghapus paksa foldernya
+    if [ ! -f /root/.acme.sh/acme.sh ]; then
+        curl -s https://get.acme.sh | sh -s email=admin@$domain
+    fi
     /root/.acme.sh/acme.sh --upgrade --auto-upgrade >/dev/null 2>&1
-    /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt >/dev/null 2>&1
+    
+    # Gunakan ZeroSSL agar bebas rate-limit Let's Encrypt
+    /root/.acme.sh/acme.sh --set-default-ca --server zerossl >/dev/null 2>&1
+    /root/.acme.sh/acme.sh --register-account -m admin@$domain --server zerossl >/dev/null 2>&1
     /root/.acme.sh/acme.sh --issue -d "$domain" --standalone -k ec-256 --force
     
     /root/.acme.sh/acme.sh --installcert -d "$domain" \
         --fullchainpath /etc/xray/xray.crt \
         --keypath /etc/xray/xray.key --ecc
         
+    # Jaring Pengaman: Jika gagal dapat sertifikat resmi, buat self-signed darurat agar service tidak crash
+    if [[ ! -s /etc/xray/xray.crt || ! -s /etc/xray/xray.key ]]; then
+        openssl req -new -newkey rsa:2048 -days 365 -nodes -x509 \
+            -subj "/C=ID/ST=EastJava/L=Pamekasan/O=IDLVPN/CN=${domain}" \
+            -keyout /etc/xray/xray.key -out /etc/xray/xray.crt >/dev/null 2>&1
+    fi
+
     chmod 644 /etc/xray/xray.crt
     chmod 600 /etc/xray/xray.key
     
     cat /etc/xray/xray.crt /etc/xray/xray.key > /etc/haproxy/hap.pem
     chmod 600 /etc/haproxy/hap.pem
+    
     print_success "Sertifikat SSL"
 }
+
 
 # 5. Core Xray Terbaru & Konfigurasi Multiplexing
 function install_xray() {
