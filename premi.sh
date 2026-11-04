@@ -59,10 +59,10 @@ function first_setup(){
     timedatectl set-timezone Asia/Jakarta
     ln -fs /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
 
-    mkdir -p /etc/xray /var/log/xray /var/lib/kyt /var/www/html /run/xray /usr/local/kyt /usr/local/share/xray /usr/local/bin
-    chown -R www-data:www-data /var/log/xray /run/xray
+    mkdir -p /etc/xray /var/log/xray /var/lib/kyt /var/www/html /run/xray /usr/local/kyt /usr/local/share/xray /usr/local/bin /usr/local/sbin
+    chown -R root:root /var/log/xray /etc/xray
+    chmod -R 755 /var/log/xray
     touch /var/log/xray/access.log /var/log/xray/error.log
-    chmod +x /var/log/xray
 
     mkdir -p /etc/kyt/limit/vmess/ip /etc/kyt/limit/vless/ip /etc/kyt/limit/trojan/ip /etc/kyt/limit/ssh/ip
     mkdir -p /etc/limit/vmess /etc/limit/vless /etc/limit/trojan /etc/limit/ssh
@@ -143,9 +143,11 @@ function pasang_ssl() {
 function install_xray() {
     print_install "Memasang Core Xray & Konfigurasi Multiplexer"
     
-    mkdir -p /usr/local/share/xray /usr/local/bin /etc/xray
+    mkdir -p /usr/local/share/xray /usr/local/bin /etc/xray /var/log/xray
+    chown -R root:root /var/log/xray /etc/xray
+    chmod -R 755 /var/log/xray
     
-    # Ambil Core Xray Resmi Release Terbaru Langsung (Aman dari bug script install.sh lama)
+    # Ambil Core Xray Resmi Release Terbaru Langsung
     latest_xray=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep tag_name | cut -d '"' -f 4)
     if [[ -z "$latest_xray" ]]; then
         latest_xray="v1.8.24"
@@ -156,7 +158,7 @@ function install_xray() {
     chmod +x /usr/local/bin/xray
     rm -rf /tmp/xray /tmp/xray.zip
 
-    # Unduh database geosite & geoip resmi
+    # Unduh geosite & geoip resmi
     wget -q -O /usr/local/share/xray/geosite.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
     wget -q -O /usr/local/share/xray/geoip.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
 
@@ -182,10 +184,10 @@ LimitNOFILE=1000000
 WantedBy=multi-user.target
 EOF
 
-    # Unduh file config hasil revisi
-    wget -q -O /etc/xray/config.json "${REPO}config.json"
-    wget -q -O /etc/haproxy/haproxy.cfg "${REPO}haproxy.cfg"
-    wget -q -O /etc/nginx/conf.d/xray.conf "${REPO}xray.conf"
+    # Unduh config dari folder limit
+    wget -q -O /etc/xray/config.json "${REPO}limit/config.json"
+    wget -q -O /etc/haproxy/haproxy.cfg "${REPO}limit/haproxy.cfg"
+    wget -q -O /etc/nginx/conf.d/xray.conf "${REPO}limit/xray.conf"
     
     domain=$(cat /etc/xray/domain)
     sed -i "s/xxx/${domain}/g" /etc/haproxy/haproxy.cfg
@@ -211,12 +213,12 @@ EOF
     echo "Banner /etc/kyt.txt" >> /etc/ssh/sshd_config
     echo "Welcome to Premium VPN Server" > /etc/kyt.txt
 
-    wget -q -O /usr/bin/ws "${REPO}ws.py"
+    wget -q -O /usr/bin/ws "${REPO}limit/ws.py"
     chmod +x /usr/bin/ws
     
     cat <<EOF > /etc/systemd/system/ws.service
 [Unit]
-Description=WebSocket SSH Python3 Service
+Description=WebSocket SSH Service
 After=network.target
 
 [Service]
@@ -242,8 +244,8 @@ EOF
 function setup_limits(){
     print_install "Menyiapkan Service Limit IP & Limit Quota"
     
-    wget -q -O /usr/bin/limit-ip "${REPO}limit-ip"
-    wget -q -O /usr/bin/quota "${REPO}quota"
+    wget -q -O /usr/bin/limit-ip "${REPO}limit/limit-ip"
+    wget -q -O /usr/bin/quota "${REPO}limit/quota"
     chmod +x /usr/bin/limit-ip /usr/bin/quota
 
     cat <<EOF > /etc/systemd/system/quota.service
@@ -329,25 +331,30 @@ EOF
     print_success "Optimasi Sistem"
 }
 
-# 9. Pemasangan Menu CLI (Handle Nested Directory)
+# 9. Pemasangan Menu CLI (Handle Nested Folder & Symlink)
 function install_menu(){
     print_install "Memasang Menu CLI Management"
-    if wget -q --spider "${REPO}limit/menu.zip"; then
-        rm -rf /tmp/menu /tmp/menu.zip
-        wget -q -O /tmp/menu.zip "${REPO}limit/menu.zip"
-        mkdir -p /tmp/menu
-        unzip -q -o /tmp/menu.zip -d /tmp/menu/
-        
-        # Salin file eksekutor baik yang berada di root zip maupun di dalam subfolder menu
-        if [ -d "/tmp/menu/menu" ]; then
-            cp -r /tmp/menu/menu/* /usr/local/sbin/
-        else
-            cp -r /tmp/menu/* /usr/local/sbin/
-        fi
-        
-        chmod +x /usr/local/sbin/*
-        rm -rf /tmp/menu /tmp/menu.zip
+    rm -rf /tmp/menu /tmp/menu.zip
+    wget -q -O /tmp/menu.zip "${REPO}limit/menu.zip"
+    mkdir -p /tmp/menu
+    unzip -q -o /tmp/menu.zip -d /tmp/menu/
+    
+    if [ -d "/tmp/menu/menu" ]; then
+        cp -r /tmp/menu/menu/* /usr/local/sbin/
+        cp -r /tmp/menu/menu/* /usr/bin/
+    else
+        cp -r /tmp/menu/* /usr/local/sbin/
+        cp -r /tmp/menu/* /usr/bin/
     fi
+    
+    chmod +x /usr/local/sbin/* /usr/bin/* 2>/dev/null
+    rm -rf /tmp/menu /tmp/menu.zip
+
+    # Perbaiki logika pembacaan status ws pada menu agar native dan presisi
+    sed -i 's/systemctl status ws | grep Active.*/systemctl is-active ws)/g' /usr/local/sbin/menu 2>/dev/null
+    sed -i 's/\[\[ \$ssh_ws == "running" \]\]/\[\[ \$ssh_ws == "active" \]\]/g' /usr/local/sbin/menu 2>/dev/null
+    sed -i 's/systemctl status ws | grep Active.*/systemctl is-active ws)/g' /usr/bin/menu 2>/dev/null
+    sed -i 's/\[\[ \$ssh_ws == "running" \]\]/\[\[ \$ssh_ws == "active" \]\]/g' /usr/bin/menu 2>/dev/null
 
     cat <<EOF > /root/.profile
 if [ "\$BASH" ]; then
