@@ -140,9 +140,15 @@ function pasang_ssl() {
 }
 
 # 5. Core Xray Terbaru & Konfigurasi Multiplexing
+# 5. Core Xray Terbaru & Konfigurasi Multiplexing
 function install_xray() {
     print_install "Memasang Core Xray & Konfigurasi Multiplexer"
     
+    # Lepas port 80 bawaan Nginx agar tidak bentrok dengan HAProxy
+    rm -f /etc/nginx/sites-enabled/default
+    rm -f /etc/nginx/sites-available/default
+    rm -f /etc/nginx/conf.d/default.conf
+
     mkdir -p /usr/local/share/xray /usr/local/bin /etc/xray /var/log/xray
     chown -R root:root /var/log/xray /etc/xray
     chmod -R 755 /var/log/xray
