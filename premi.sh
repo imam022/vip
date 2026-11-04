@@ -153,16 +153,20 @@ function pasang_ssl() {
 function install_xray() {
     print_install "Memasang Core Xray & Konfigurasi Multiplexer"
     
-    # Lepas port 80 bawaan Nginx agar tidak bentrok dengan HAProxy
+    # 1. Pastikan paket pendukung ekstrak terpasang
+    apt-get install -y unzip curl wget
+
+    # 2. Bebaskan port 80 dari Nginx bawaan agar tidak bentrok dengan HAProxy
     rm -f /etc/nginx/sites-enabled/default
     rm -f /etc/nginx/sites-available/default
     rm -f /etc/nginx/conf.d/default.conf
 
+    # 3. Siapkan struktur folder kerja Xray
     mkdir -p /usr/local/share/xray /usr/local/bin /etc/xray /var/log/xray
     chown -R root:root /var/log/xray /etc/xray
     chmod -R 755 /var/log/xray
     
-    # Ambil Core Xray Resmi Release Terbaru Langsung
+    # 4. Ambil Core Xray Resmi Release Terbaru
     latest_xray=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep tag_name | cut -d '"' -f 4)
     if [[ -z "$latest_xray" ]]; then
         latest_xray="v1.8.24"
@@ -173,11 +177,11 @@ function install_xray() {
     chmod +x /usr/local/bin/xray
     rm -rf /tmp/xray /tmp/xray.zip
 
-    # Unduh geosite & geoip resmi
+    # 5. Unduh geosite & geoip resmi
     wget -q -O /usr/local/share/xray/geosite.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
     wget -q -O /usr/local/share/xray/geoip.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
 
-    # Daftarkan Xray Service Systemd
+    # 6. Daftarkan Xray Service Systemd
     cat <<EOF > /etc/systemd/system/xray.service
 [Unit]
 Description=Xray Service
@@ -199,7 +203,7 @@ LimitNOFILE=1000000
 WantedBy=multi-user.target
 EOF
 
-    # Unduh config dari folder limit
+    # 7. Unduh config dari folder limit
     wget -q -O /etc/xray/config.json "${REPO}limit/config.json"
     wget -q -O /etc/haproxy/haproxy.cfg "${REPO}limit/haproxy.cfg"
     wget -q -O /etc/nginx/conf.d/xray.conf "${REPO}limit/xray.conf"
@@ -207,9 +211,17 @@ EOF
     domain=$(cat /etc/xray/domain)
     sed -i "s/xxx/${domain}/g" /etc/haproxy/haproxy.cfg
     sed -i "s/xxx/${domain}/g" /etc/nginx/conf.d/xray.conf
+
+    # 8. Reload daemon & aktifkan service agar langsung berjalan hijau
+    systemctl daemon-reload
+    systemctl enable xray
+    systemctl restart xray
+    systemctl restart nginx
+    systemctl restart haproxy
     
     print_success "Core Xray & Konfigurasi Multiplexing"
 }
+
 
 # 6. Service SSH & WebSocket Proxy (Python 3 Native)
 function ins_ssh_ws(){
