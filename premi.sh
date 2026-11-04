@@ -15,7 +15,6 @@ echo '$nrconf{kernelhints} = 0;' >> /etc/needrestart/conf.d/autorestart.conf 2>/
 # Support: Ubuntu 20.04 / 22.04 / 24.04 & Debian 10 / 11 / 12
 # ========================================================
 
-export DEBIAN_FRONTEND=noninteractive
 Green="\e[92;1m"
 RED="\033[31m"
 YELLOW="\033[33m"
